@@ -19,24 +19,38 @@ jobs:
           unzip -q Crash-Speed-Analyzer.zip -d extracted
           find extracted -type f -name gradlew -print
 
-      - name: Find Android project
+      - name: Find project root
         id: project
         run: |
-          GRADLEW=$(find extracted -type f -name gradlew | head -n 1)
+          GRADLEW=$(find extracted -type f -path "*/android/gradlew" | head -n 1)
 
           if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew was not found inside the ZIP."
+            echo "ERROR: Android Gradle wrapper was not found."
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
+          ANDROID_DIR=$(dirname "$GRADLEW")
+          PROJECT_DIR=$(dirname "$ANDROID_DIR")
+          WORKSPACE_ROOT=$(dirname "$(dirname "$PROJECT_DIR")")
+
+          echo "android_dir=$ANDROID_DIR" >> "$GITHUB_OUTPUT"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project found at: $PROJECT_DIR"
+          echo "workspace_root=$WORKSPACE_ROOT" >> "$GITHUB_OUTPUT"
+
+          echo "Android project: $ANDROID_DIR"
+          echo "Crash Speed Analyzer project: $PROJECT_DIR"
+          echo "Workspace root: $WORKSPACE_ROOT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -44,25 +58,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install dependencies
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        run: |
-          if [ -f package.json ]; then
-            npm install
-          fi
+      - name: Install workspace dependencies
+        working-directory: ${{ steps.project.outputs.workspace_root }}
+        run: pnpm install --no-frozen-lockfile
 
       - name: Sync Capacitor Android
         working-directory: ${{ steps.project.outputs.project_dir }}
-        run: |
-          if [ -f package.json ]; then
-            npx cap sync android
-          fi
-
-      - name: Make gradlew executable
-        run: chmod +x "${{ steps.project.outputs.project_dir }}/gradlew"
+        run: pnpm run android:sync
 
       - name: Build Debug APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
+        working-directory: ${{ steps.project.outputs.android_dir }}
         run: ./gradlew assembleDebug
 
       - name: Upload APK
